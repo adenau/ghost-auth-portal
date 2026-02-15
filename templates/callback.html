@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Signing you in...</title>
+  </head>
+  <body>
+    <p id="status">Signing you in...</p>
+    <script>
+      (async function () {
+        const statusEl = document.getElementById("status");
+        const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const query = new URLSearchParams(window.location.search);
+        const token = hash.get("token");
+        const nextPath = {{ next_path|tojson }};
+        const state = query.get("state") || {{ state|tojson }};
+
+        if (!token) {
+          statusEl.textContent = "Missing token in callback URL.";
+          return;
+        }
+
+        const response = await fetch("/api/auth/ghost", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ token, next: nextPath, state })
+        });
+
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          statusEl.textContent = payload.error || "Authentication failed.";
+          return;
+        }
+
+        window.location.replace(payload.redirect || "/");
+      })();
+    </script>
+  </body>
+</html>
