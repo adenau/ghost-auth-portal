@@ -63,9 +63,10 @@ def create_ghost_auth_blueprint(config: GhostAuthConfig) -> Blueprint:
         session["ghost_sub"] = claims["sub"]
         session["ghost_iat"] = claims.get("iat")
         session["ghost_exp"] = claims.get("exp")
+        session.permanent = True
         return jsonify({"ok": True, "redirect": next_path})
 
-    @bp.get("/logout")
+    @bp.post("/logout")
     def logout() -> Response:
         session.clear()
         return redirect("/")

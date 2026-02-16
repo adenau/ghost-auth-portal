@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 
 from flask import Flask, jsonify, session
+from markupsafe import escape
 
 from ghost_auth_bridge import GhostAuthConfig, create_ghost_auth_blueprint, ghost_login_required
 
@@ -24,6 +26,7 @@ def create_app() -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE=session_cookie_samesite,
         SESSION_COOKIE_SECURE=session_cookie_secure,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=24),
         GHOST_AUTH_CONFIG=config,
     )
 
@@ -32,7 +35,16 @@ def create_app() -> Flask:
     @app.get("/")
     @ghost_login_required
     def index() -> str:
-        return f"Hello, {session['ghost_sub']}"
+        return f'''
+        <html>
+        <body>
+            <h1>Hello, {escape(session['ghost_sub'])}!</h1>
+            <form method="post" action="/logout">
+                <button type="submit">Logout</button>
+            </form>
+        </body>
+        </html>
+        '''
 
     @app.get("/api/me")
     @ghost_login_required
