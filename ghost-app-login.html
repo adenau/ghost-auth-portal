@@ -30,10 +30,31 @@
         const fallbackCallbackUrl = config.callbackUrl || "";
 
         const query = new URLSearchParams(window.location.search);
-        const returnTarget = query.get("r") || fallbackCallbackUrl;
+        const requestedReturnTarget = query.get("r");
+
+        function pickSafeReturnTarget() {
+          const fallback = fallbackCallbackUrl ? new URL(fallbackCallbackUrl) : null;
+          const requested = requestedReturnTarget ? new URL(requestedReturnTarget) : null;
+
+          if (requested && fallback && requested.origin === fallback.origin) {
+            return requested.toString();
+          }
+
+          if (!requested && fallback) {
+            return fallback.toString();
+          }
+
+          if (requested && !fallback && requested.origin === window.location.origin) {
+            return requested.toString();
+          }
+
+          return "";
+        }
+
+        const returnTarget = pickSafeReturnTarget();
 
         if (!returnTarget) {
-          setStatus("Missing callback URL (r query parameter).");
+          setStatus("Missing or invalid callback URL.");
           return;
         }
 

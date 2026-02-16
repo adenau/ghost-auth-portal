@@ -85,6 +85,7 @@ Create a Ghost page and include:
 - JWT signature is validated with Ghost JWKS (`RS512`)
 - Issuer and audience are strictly validated
 - One-time `state` validation protects callback/auth API against forged login posts
+- Ghost gate script validates `r` callback target origin before redirect to prevent token leakage
 - Flask uses its own secure session cookie (`SESSION_COOKIE_SECURE=true` in production)
 - Session stores only minimal member identity metadata (`sub`, `iat`, `exp`)
 

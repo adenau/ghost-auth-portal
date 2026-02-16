@@ -1,170 +1,75 @@
 
-# Ghost → Flask Authentication Bridge
+# Ghost → Flask Authentication Bridge (Handoff Context)
 
+## Current Status
 
-## Overview
+The project is functional end-to-end:
 
-The goal of this project is to create a python library that I can integrate in my applications so that I can leverage Ghost Blog authentification into my web application. In that sense, I'm using Ghost blog kinda like a SSO and my members never need to sign up to something new. 
+- Ghost member session is fetched from `/members/api/session/`
+- JWT is redirected to Flask callback via URL fragment (`#token=...`)
+- Flask verifies JWT using Ghost JWKS (`RS512`, issuer, audience)
+- Flask creates its own session
+- Protected route returns authenticated user (confirmed with real login)
 
-Ghost acts as the **identity provider**.  
-The Flask app acts as the **resource server**.
+## Implemented Components
 
-Authentication is handled via Ghost-issued JWT tokens, which are verified server-side in Flask using Ghost’s public keys.
+- Flask app entrypoint: `app.py`
+- Reusable auth bridge package:
+	- `ghost_auth_bridge/config.py`
+	- `ghost_auth_bridge/jwks.py`
+	- `ghost_auth_bridge/verifier.py`
+	- `ghost_auth_bridge/flask_integration.py`
+- Callback page template: `templates/callback.html`
+- Ghost gate script (served by Flask): `static/ghost.js`
+- Copy/paste Ghost HTML template: `ghost-app-login.html`
+- Deployment and docs:
+	- `README.md`
+	- `HARDENING.md`
+	- `.env.example`
+	- `Procfile`
 
----
+## Important Flow Details
 
-## Goals
+- Ghost sign-in route must use Portal hash route: `#/portal/signin` (not `/signin/`)
+- Gate page is expected at `/app-login/` on Ghost
+- Flask callback route is `/auth/ghost/callback`
+- Auth API route is `/api/auth/ghost`
 
-- Use Ghost Members for signup and login
-- Avoid duplicating authentication logic
-- Avoid sharing cookies across domains
-- Keep the Flask app non-publicly exposed
-- Include a test application that can be deploy using Dokku on a VPS
-- Have the javascript code I need to embed in a Ghost page in ghost.js
+## Security Hardening Already Done
 
----
+- One-time `state` validation added across login flow
+- Redirect `next` path validation (local path only)
+- Session payload minimized (`sub`, `iat`, `exp`)
+- Cookie security is env-configurable:
+	- `SESSION_COOKIE_SECURE`
+	- `SESSION_COOKIE_SAMESITE`
+- Critical open-redirect token-leak risk fixed in gate scripts:
+	- `r` callback target origin is validated before redirecting with token
 
-## Architecture
+## Local Development Notes
 
-### 1. Ghost (Identity Provider)
+- Port `5000` was occupied during testing; `5001` was used successfully
+- For localhost HTTP testing set:
+	- `SESSION_COOKIE_SECURE=false`
+- For production keep:
+	- `SESSION_COOKIE_SECURE=true`
 
+## Audit and Priorities
 
-Provides:
-
-- Member login
-- Session JWT via `/members/api/session/`
-- Public key set via `/members/.well-known/jwks.json`
-
----
-
-### 2. Flask Application (Protected Resource)`
-
-Responsibilities:
-
-- Receives Ghost JWT
-- Verifies signature using JWKS
-- Validates issuer and audience
-- Creates Flask session
-- Protects application routes
-
----
-
-## Authentication Flow
-
-Using the following URL as test URLs
-
-### Step 1 — User Accesses Flask App
-
-User visits:
-
-https://test.technodabbler.com
-
-perl
-Copy code
-
-If no Flask session exists:
-
-Redirect to:
-
-https://www.technodabbler.com/app-login/?r=https://test.technodabbler.com/auth/ghost/callback
-
-yaml
-Copy code
-
----
-
-### Step 2 — Ghost Gate Page
-
-The `/app-login/` page:
-
-- Calls `/members/api/session/`
-- If response is `204` → user not logged in → redirect to Ghost sign-in
-- If JWT returned → redirect to Flask:
-
-https://test.technodabbler.com/auth/ghost/callback#token=<jwt>
-
-yaml
-Copy code
-
----
-
-### Step 3 — Flask Callback
-
-Route: `/auth/ghost/callback`
-
-- Extracts JWT from URL fragment
-- Sends token via POST to `/api/auth/ghost`
-
----
-
-### Step 4 — Token Verification (Server-Side)
-
-Flask:
-
-1. Fetches JWKS from:
-
-https://www.technodabbler.com/members/.well-known/jwks.json
-
-yaml
-Copy code
-
-2. Verifies JWT:
-- Algorithm: `RS512`
-- Audience: `https://www.technodabbler.com/members/api`
-- Issuer: `https://www.technodabbler.com/members/api`
-
-3. Extracts:
-- `sub` (email)
-
-4. Creates Flask session
-
----
-
-### Step 5 — Authenticated Access
-
-User is redirected to `/`.
-
-Flask session now exists.
-
-Protected routes are accessible.
-
----
-
-## Security Model
-
-- JWT passed via URL fragment (`#token=`)
-- Fragment is not sent to server logs
-- No cross-domain cookie sharing
-- Flask sets its own secure session cookie
-- JWT signature verified using Ghost public keys
-- App is not publicly exposed (Cloudflare Tunnel only)
-
----
+- Audit file: `audit.md`
+- Critical issue (open redirect in gate script) is now fixed
+- Remaining audit items still to address include:
+	- XSS-safe rendering on index response
+	- logout CSRF (GET → POST)
+	- session lifetime policy
+	- auth event logging
+	- CSP headers
 
 ## Required Environment Variables
 
-APP_SESSION_SECRET
-GHOST_ORIGIN=https://www.technodabbler.com
-APP_CALLBACK_URL=https://test.technodabbler.com/auth/ghost/callback
----
-
-## Development Mode
-
-For local testing:
-
-- Flask runs on `http://localhost:5000`
-- Ghost gate page may temporarily redirect to localhost
-- JWT verification logic remains identical
-
----
-
-## Future Improvements
-
-- Enforce Ghost paid tiers
-- Role-based authorization
-- Nonce/state validation
-- Logout synchronization
-- Replace Flask session with signed internal JWT
-- Centralized auth microservice
-- Automated deployment script
-- Admin interface
+- `APP_SESSION_SECRET`
+- `GHOST_ORIGIN` (example: `https://www.technodabbler.com`)
+- `APP_CALLBACK_URL` (example: `https://test.technodabbler.com/auth/ghost/callback`)
+- `JWKS_CACHE_TTL_SECONDS` (optional, default `300`)
+- `SESSION_COOKIE_SECURE` (`true` in prod, `false` local HTTP)
+- `SESSION_COOKIE_SAMESITE` (`Lax` default)
