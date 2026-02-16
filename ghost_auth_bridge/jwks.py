@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 import requests
+from requests import RequestException
 
 
 class JwksClient:
@@ -19,8 +20,15 @@ class JwksClient:
         if not force_refresh and self._cached_jwks and now < self._cache_until:
             return self._cached_jwks
 
-        response = requests.get(self._jwks_url, timeout=self._timeout_seconds)
-        response.raise_for_status()
+        try:
+            response = requests.get(self._jwks_url, timeout=self._timeout_seconds)
+            response.raise_for_status()
+        except RequestException as exc:
+            if self._cached_jwks:
+                # Use stale cache if we have it
+                return self._cached_jwks
+            raise ValueError(f"Unable to fetch JWKS from {self._jwks_url}: {exc}") from exc
+
         payload = response.json()
 
         if "keys" not in payload or not isinstance(payload["keys"], list):

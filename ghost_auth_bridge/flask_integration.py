@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from functools import wraps
 from typing import Any, Callable
@@ -9,6 +10,8 @@ from flask import Blueprint, Response, current_app, jsonify, redirect, render_te
 
 from .config import GhostAuthConfig
 from .verifier import GhostTokenError, GhostTokenVerifier
+
+logger = logging.getLogger(__name__)
 
 
 def ghost_login_required(view: Callable[..., Any]) -> Callable[..., Any]:
@@ -49,6 +52,11 @@ def create_ghost_auth_blueprint(config: GhostAuthConfig) -> Blueprint:
 
         expected_state = session.get("ghost_auth_state")
         if not state or not isinstance(state, str) or not expected_state or state != expected_state:
+            logger.warning("Invalid authentication state", extra={
+                "has_state": bool(state),
+                "has_expected_state": bool(expected_state),
+                "user_agent": request.headers.get("User-Agent", "unknown")[:100]
+            })
             return jsonify({"ok": False, "error": "Invalid authentication state"}), 400
         session.pop("ghost_auth_state", None)
 
@@ -57,8 +65,23 @@ def create_ghost_auth_blueprint(config: GhostAuthConfig) -> Blueprint:
 
         try:
             claims = verifier.verify(token)
+            logger.info("Ghost authentication successful", extra={
+                "sub": claims["sub"], 
+                "iat": claims.get("iat"),
+                "user_agent": request.headers.get("User-Agent", "unknown")[:100]
+            })
         except GhostTokenError as exc:
+            logger.warning("Ghost token verification failed", extra={
+                "error": str(exc),
+                "user_agent": request.headers.get("User-Agent", "unknown")[:100]
+            })
             return jsonify({"ok": False, "error": str(exc)}), 401
+        except Exception as exc:
+            logger.error("Ghost token verification error", extra={
+                "error": str(exc),
+                "error_type": type(exc).__name__
+            })
+            return jsonify({"ok": False, "error": "Authentication service temporarily unavailable"}), 503
 
         session["ghost_sub"] = claims["sub"]
         session["ghost_iat"] = claims.get("iat")

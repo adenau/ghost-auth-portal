@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>App Login Bridge</title>
+  </head>
+  <body>
+    <div style="text-align: center; max-width: 400px; margin: 0 auto; padding: 2em;">
+      <p id="status">Checking your Ghost session...</p>
+      
+      <div id="consent-screen" style="display: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 2em; background: #fafafa; margin-top: 1em;">
+        <h3 id="app-name" style="margin-top: 0; margin-bottom: 0.5em;">External Application</h3>
+        <p style="margin: 0 0 1.5em 0;"><small id="user-email"></small></p>
+        
+        <p style="margin: 1.5em 0; line-height: 1.5;">wants to access your Ghost account and verify your membership status.</p>
+        
+        <p style="margin-top: 2em; margin-bottom: 0;">
+          <button id="cancel-btn" style="margin-right: 1em; padding: 0.75em 1.5em;">Cancel</button>
+          <button id="allow-btn" style="padding: 0.75em 1.5em;">Allow</button>
+        </p>
+      </div>
+    </div>
+
+    <script>
+      window.GhostBridgeConfig = {
+        callbackUrl: "https://test.technodabbler.com/auth/ghost/callback",
+        sessionEndpoint: "/members/api/session/",
+        signInPath: "/portal/signin",
+        appName: "My App" // Add this to customize the app name
+      };
+    </script>
+
+    <script>
+      (async function () {
+        const statusEl = document.getElementById("status");
+        const consentScreen = document.getElementById("consent-screen");
+        const appNameEl = document.getElementById("app-name");
+        const userEmailEl = document.getElementById("user-email");
+        const allowBtn = document.getElementById("allow-btn");
+        const cancelBtn = document.getElementById("cancel-btn");
+        
+        const setStatus = (message) => {
+          if (statusEl) {
+            statusEl.textContent = message;
+          }
+        };
+        
+        const showConsentScreen = (appName, userEmail) => {
+          statusEl.style.display = 'none';
+          appNameEl.textContent = appName;
+          userEmailEl.textContent = userEmail;
+          consentScreen.style.display = 'block';
+        };
+        
+        const config = window.GhostBridgeConfig || {};
+        const sessionEndpoint = config.sessionEndpoint || "/members/api/session/";
+        const signInPath = config.signInPath || "/portal/signin";
+        const fallbackCallbackUrl = config.callbackUrl || "";
+        const appName = config.appName || "External Application";
+
+        const query = new URLSearchParams(window.location.search);
+        const requestedReturnTarget = query.get("r");
+
+        function pickSafeReturnTarget() {
+          const fallback = fallbackCallbackUrl ? new URL(fallbackCallbackUrl) : null;
+          const requested = requestedReturnTarget ? new URL(requestedReturnTarget) : null;
+
+          if (requested && fallback && requested.origin === fallback.origin) {
+            return requested.toString();
+          }
+
+          if (!requested && fallback) {
+            return fallback.toString();
+          }
+
+          if (requested && !fallback && requested.origin === window.location.origin) {
+            return requested.toString();
+          }
+
+          return "";
+        }
+
+        const returnTarget = pickSafeReturnTarget();
+
+        if (!returnTarget) {
+          setStatus("Missing or invalid callback URL. Check browser console for details.");
+          return;
+        }
+
+        function redirectToSignIn() {
+          const signInUrl = new URL(window.location.href);
+          signInUrl.hash = signInPath.startsWith("#") ? signInPath : `#${signInPath}`;
+          window.location.replace(signInUrl.toString());
+        }
+
+        async function getMemberData() {
+          const response = await fetch(sessionEndpoint, {
+            credentials: "include",
+            headers: {
+              Accept: "application/json"
+            }
+          });
+
+          if (response.status === 204) {
+            return null;
+          }
+
+          if (!response.ok) {
+            throw new Error(`Session check failed: ${response.status} ${response.statusText}`);
+          }
+
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const body = await response.json();
+            return {
+              token: body.token || body.jwt || null,
+              email: body.email || body.member?.email || "your account"
+            };
+          }
+
+          const textToken = (await response.text()).trim();
+          return {
+            token: textToken || null,
+            email: "your account"
+          };
+        }
+
+        function proceedWithAuth(token) {
+          setStatus("Redirecting to app...");
+          consentScreen.style.display = 'none';
+          statusEl.style.display = 'block';
+          const callback = new URL(returnTarget);
+          callback.hash = `token=${encodeURIComponent(token)}`;
+          window.location.replace(callback.toString());
+        }
+
+        try {
+          setStatus("Fetching member session...");
+          
+          const memberData = await getMemberData();
+          
+          if (!memberData || !memberData.token) {
+            setStatus("Not logged in. Redirecting to Ghost sign-in...");
+            setTimeout(() => redirectToSignIn(), 2000);
+            return;
+          }
+
+          // Show consent screen instead of immediately redirecting
+          showConsentScreen(appName, memberData.email);
+          
+          // Handle button clicks
+          allowBtn.addEventListener('click', () => {
+            proceedWithAuth(memberData.token);
+          });
+          
+          cancelBtn.addEventListener('click', () => {
+            consentScreen.style.display = 'none';
+            statusEl.style.display = 'block';
+            setStatus("Authorization cancelled. You can close this window.");
+          });
+          
+        } catch (error) {
+          setStatus("Authentication bridge error: " + error.message);
+        }
+      })();
+    </script>
+  </body>
+</html>

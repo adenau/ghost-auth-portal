@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from datetime import timedelta
 
-from flask import Flask, jsonify, session
+from flask import Flask, Response, jsonify, session
 from markupsafe import escape
 
 from ghost_auth_bridge import GhostAuthConfig, create_ghost_auth_blueprint, ghost_login_required
@@ -20,6 +20,10 @@ def create_app() -> Flask:
         "on",
     }
     session_cookie_samesite = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+    
+    # Validate SESSION_COOKIE_SAMESITE
+    if session_cookie_samesite not in {"Strict", "Lax", "None"}:
+        raise ValueError(f"Invalid SESSION_COOKIE_SAMESITE value: {session_cookie_samesite}. Must be 'Strict', 'Lax', or 'None'")
 
     app.secret_key = config.app_session_secret
     app.config.update(
@@ -31,6 +35,13 @@ def create_app() -> Flask:
     )
 
     app.register_blueprint(create_ghost_auth_blueprint(config))
+
+    @app.after_request
+    def add_security_headers(response: Response) -> Response:
+        # Add Content-Security-Policy header
+        csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+        response.headers["Content-Security-Policy"] = csp
+        return response
 
     @app.get("/")
     @ghost_login_required

@@ -45,9 +45,15 @@ class GhostAuthConfig:
         if missing:
             raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
+        # Parse and validate JWKS cache TTL
+        try:
+            jwks_cache_ttl = int(os.getenv("JWKS_CACHE_TTL_SECONDS", "300"))
+        except ValueError as exc:
+            raise ValueError(f"Invalid JWKS_CACHE_TTL_SECONDS: must be a number") from exc
+
         return cls(
             app_session_secret=app_session_secret,
             ghost_origin=_strip_trailing_slash(ghost_origin),
             app_callback_url=_strip_trailing_slash(app_callback_url),
-            jwks_cache_ttl_seconds=int(os.getenv("JWKS_CACHE_TTL_SECONDS", "300")),
+            jwks_cache_ttl_seconds=jwks_cache_ttl,
         )
